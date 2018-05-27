@@ -6,13 +6,28 @@ const app = express();
 import { Moment } from 'moment';
 import { EventEmitter } from 'events';
 import { startProcess } from './blink';
+interface IUsedSpace{
+    carNumber: string;
+    location: string;
+    timestamp: Date;
+}
+
+interface IWholeObject{
+    free_space: string[];
+    used_space: IUsedSpace[];   
+}
+
+const wholeObject: IWholeObject = {
+    free_space: ["LOC1", "LOC2", "LOC3"],
+    used_space: []
+};
 
 export const emitLocationData = new EventEmitter();
 
 app.use('/ppms', queryRouter);
 
 app.get('/health', (req, res) => {
-    res.sendFile(path.join(__dirname, "src", "public.html"));
+    res.sendFile(path.join(__dirname,'..', "src", "public.html"));
 });
 
 const server = app.listen(3000, "0.0.0.0", () => {
@@ -35,7 +50,5 @@ io.on("connection", socket => {
     })
     
 });
-
-
 
 export default server;
