@@ -1,5 +1,6 @@
 import { Gpio } from 'onoff';
 import { emitLocationData } from './server';
+import moment from 'moment';
 
 let IR1 = new Gpio(27, 'in', 'both');
 let IR2 = new Gpio(17, 'in', 'both');
@@ -8,32 +9,26 @@ let IR3 = new Gpio(22, 'in', 'both');
 export const startProcess = () => {
 
     IR1.watch((err, value) => {
-        console.log(value);
         if (value === 1) {
-            console.log("You are near, IR1");
-            emitLocationData.emit("valueChanged", { locastion: "IR1", date: new Date() });
+            emitLocationData.emit("valueChanged", {location: "LOC1", date: moment()});
         } else {
-            console.log("you are away, IR1");
+            emitLocationData.emit("valueChanged", {location: "LOC1", date: null});
         }
     });
 
     IR2.watch((err, value) => {
-        console.log(value);
         if (value === 1) {
-            console.log("You are near, IR2");
-            emitLocationData.emit("valueChanged", { locastion: "IR2", date: new Date() });
+            emitLocationData.emit("valueChanged", {location: "LOC2", date:  moment()});
         } else {
-            console.log("you are away, IR2");
+            emitLocationData.emit("valueChanged", {location: "LOC2", date: null});
         }
     });
 
     IR3.watch((err, value) => {
-        console.log(value);
         if (value === 1) {
-            console.log("You are near , IR3");
-            emitLocationData.emit("valueChanged", { locastion: "IR3", date: new Date() });
+            emitLocationData.emit("valueChanged", {location: "LOC3", date: moment()});
         } else {
-            console.log("You are away, IR3");
+            emitLocationData.emit("valueChanged", {location: "LOC3", date: null});
         }
     })
 
