@@ -1,0 +1,1521 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus",
+      "description": ""
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "9.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "barchart",
+      "name": "Bar chart",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Airflow worker pod right-sizing dashboard \u2014 which tasks are under/over-provisioned, which are OOM risk, what limits should be set.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "title": "\ud83d\udea6 Fleet Health",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "stat",
+      "id": 1,
+      "title": "OOM Kills",
+      "description": "Total OOM kills in the selected time window. Any value > 0 means at least one task was killed due to memory exhaustion \u2014 its memory limit is too low for its peak usage.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(\n  increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", container=\"base\"}[$__range])\n  * on(pod) group_left()\n  kube_pod_container_status_last_terminated_reason{namespace=\"$namespace\", container=\"base\", reason=\"OOMKilled\"}\n  * on(pod) group_left()\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n) or vector(0)",
+          "legendFormat": "OOM Kills",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "stat",
+      "id": 2,
+      "title": "Under-provisioned Tasks",
+      "description": "Tasks where peak memory > 80% of their memory limit. These are at OOM risk \u2014 their limit needs to be raised or they need a larger pod size.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "count(\n  max by (label_dag_id, label_task_id) (\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n)\n  / avg by (label_dag_id, label_task_id) (\n  kube_pod_container_resource_limits{namespace=\"$namespace\", container=\"base\", resource=\"memory\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n) * 100 > 80\n) or vector(0)",
+          "legendFormat": "Under-provisioned",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "stat",
+      "id": 3,
+      "title": "Over-provisioned Tasks",
+      "description": "Tasks where average memory < 20% of their memory limit. These are wasting cluster resources \u2014 they could run on a smaller pod size or have their limit reduced.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "count(\n  avg by (label_dag_id, label_task_id) (\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n)\n  / avg by (label_dag_id, label_task_id) (\n  kube_pod_container_resource_limits{namespace=\"$namespace\", container=\"base\", resource=\"memory\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n) * 100 < 20\n) or vector(0)",
+          "legendFormat": "Over-provisioned",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "stat",
+      "id": 4,
+      "title": "Active Worker Pods",
+      "description": "Total worker pods currently running with a base container and valid dag_id + task_id labels.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "count(\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left()\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n) or vector(0)",
+          "legendFormat": "Active Pods",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 101,
+      "title": "\ud83c\udfaf Right-Sizing Table \u2014 Tasks Needing Attention",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 10,
+      "title": "Fleet Memory Usage by Pod Size \u2014 Stacked",
+      "description": "Total memory consumed per pod size, stacked. The height of each coloured band shows how much that pod size contributes to overall fleet memory. Pods with no pod_size label are grouped as 'unknown'.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Memory",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_pod_size) (\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left(label_pod_size)\n  label_replace(\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"},\n  \"label_pod_size\", \"unknown\", \"label_pod_size\", \"^$\"\n)\n)",
+          "legendFormat": "{{label_pod_size}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 102,
+      "title": "\ud83e\udde0 Memory Deep-Dive \u2014 Usage Pattern by Task",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 20,
+      "title": "Memory Usage vs Limit \u2014 by DAG / Task",
+      "description": "Solid lines = avg memory per dag/task across concurrent runs. Dashed red = memory limit. The gap between a solid line and its limit is the safety margin. A line consistently above 80% of its limit = raise the limit. A line consistently below 20% = reduce the limit or downsize the pod.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    8,
+                    8
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_dag_id, label_task_id) (\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n)",
+          "legendFormat": "{{label_dag_id}} / {{label_task_id}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_dag_id, label_task_id) (\n  kube_pod_container_resource_limits{namespace=\"$namespace\", container=\"base\", resource=\"memory\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n)",
+          "legendFormat": "Limit \u2014 {{label_dag_id}} / {{label_task_id}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 21,
+      "title": "Peak vs Avg Memory by Pod Size \u2014 Over Time",
+      "description": "Solid line = avg memory per pod size. Dashed line = peak memory per pod size. Lines of the same colour = same pod size. A large gap between solid and dashed means bursty tasks \u2014 set your limit against peak, request against avg.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    8,
+                    8
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_pod_size) (\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left(label_pod_size)\n  label_replace(\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"},\n  \"label_pod_size\", \"unknown\", \"label_pod_size\", \"^$\"\n)\n)",
+          "legendFormat": "Avg \u2014 {{label_pod_size}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (label_pod_size) (\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left(label_pod_size)\n  label_replace(\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"},\n  \"label_pod_size\", \"unknown\", \"label_pod_size\", \"^$\"\n)\n)",
+          "legendFormat": "Peak \u2014 {{label_pod_size}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 22,
+      "title": "Avg Memory by Task \u00d7 Pod Size",
+      "description": "Filter by Pod Size to see only tasks running at that size. A task with high memory on 'small' but still high on 'medium' needs a limit increase, not just a resize. A task with high memory only on 'small' is simply misassigned \u2014 move it to a larger size.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_dag_id, label_task_id, label_pod_size) (\n  container_memory_working_set_bytes{namespace=\"$namespace\", container=\"base\"}\n  * on(pod) group_left(label_dag_id, label_task_id, label_pod_size)\n  label_replace(\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"},\n  \"label_pod_size\", \"unknown\", \"label_pod_size\", \"^$\"\n)\n)",
+          "legendFormat": "{{label_dag_id}} / {{label_task_id}} [{{label_pod_size}}]",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "id": 103,
+      "title": "\u2699\ufe0f CPU Deep-Dive \u2014 Usage Pattern by Task",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 30,
+      "title": "CPU Usage vs Limit \u2014 by DAG / Task",
+      "description": "Solid lines = avg CPU cores consumed per dag/task. Dashed red = CPU limit. Unlike memory, hitting the CPU limit does not kill the pod \u2014 it throttles it (tasks run slower). A task consistently at its CPU limit is CPU-starved and will have degraded performance.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "cores",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    8,
+                    8
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_dag_id, label_task_id) (\n  rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", container=\"base\"}[$__rate_interval])\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n)",
+          "legendFormat": "{{label_dag_id}} / {{label_task_id}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_dag_id, label_task_id) (\n  kube_pod_container_resource_limits{namespace=\"$namespace\", container=\"base\", resource=\"cpu\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n)",
+          "legendFormat": "Limit \u2014 {{label_dag_id}} / {{label_task_id}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 31,
+      "title": "Avg CPU Usage by Pod Size \u2014 Over Time",
+      "description": "CPU consumption per pod size over time vs the limit line per size. If a pod size's CPU usage consistently approaches its limit, tasks on that size are being throttled.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "cores",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    8,
+                    8
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_pod_size) (\n  rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", container=\"base\"}[$__rate_interval])\n  * on(pod) group_left(label_pod_size)\n  label_replace(\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"},\n  \"label_pod_size\", \"unknown\", \"label_pod_size\", \"^$\"\n)\n)",
+          "legendFormat": "Avg \u2014 {{label_pod_size}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_pod_size) (\n  kube_pod_container_resource_limits{namespace=\"$namespace\", container=\"base\", resource=\"cpu\"}\n  * on(pod) group_left(label_pod_size)\n  label_replace(\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"},\n  \"label_pod_size\", \"unknown\", \"label_pod_size\", \"^$\"\n)\n)",
+          "legendFormat": "Limit \u2014 {{label_pod_size}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 32,
+      "title": "Avg CPU Usage by Task \u00d7 Pod Size",
+      "description": "CPU usage per dag/task broken down by pod size. A task that uses significantly more CPU on 'small' than on 'large' is being throttled on small \u2014 the larger pod size has a higher CPU limit giving it more headroom.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "cores",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (label_dag_id, label_task_id, label_pod_size) (\n  rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", container=\"base\"}[$__rate_interval])\n  * on(pod) group_left(label_dag_id, label_task_id, label_pod_size)\n  label_replace(\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"},\n  \"label_pod_size\", \"unknown\", \"label_pod_size\", \"^$\"\n)\n)",
+          "legendFormat": "{{label_dag_id}} / {{label_task_id}} [{{label_pod_size}}]",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "id": 104,
+      "title": "\ud83d\udca5 OOM Kill Detail",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "barchart",
+      "id": 40,
+      "title": "OOM Kills by Task \u00d7 Pod Size",
+      "description": "OOM kill count per dag/task per pod size over the selected time range. A task with OOM kills on 'small' but not 'medium' = move it up. A task with OOM kills on all sizes = its memory limit is fundamentally too low and needs to be raised regardless of pod size.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.6,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "xTickLabelRotation": 0,
+        "xField": "label_task_id"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (label_dag_id, label_task_id, label_pod_size) (\n  increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", container=\"base\"}[$__range])\n  * on(pod) group_left()\n  kube_pod_container_status_last_terminated_reason{namespace=\"$namespace\", container=\"base\", reason=\"OOMKilled\"}\n  * on(pod) group_left(label_dag_id, label_task_id, label_pod_size)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n) or vector(0)",
+          "legendFormat": "{{label_dag_id}} / {{label_task_id}} [{{label_pod_size}}]",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "type": "timeseries",
+      "id": 41,
+      "title": "OOM Kill Rate \u2014 Trend Over Time",
+      "description": "OOM events over time. Correlate spikes with the memory usage vs limit panel \u2014 if memory was near its limit when this spiked, the limit needs to be raised. A task with frequent OOM spikes has dangerously low headroom.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (label_dag_id, label_task_id) (\n  increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", container=\"base\"}[$__rate_interval])\n  * on(pod) group_left()\n  kube_pod_container_status_last_terminated_reason{namespace=\"$namespace\", container=\"base\", reason=\"OOMKilled\"}\n  * on(pod) group_left(label_dag_id, label_task_id)\n  kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id=~\"$task_id\", label_pod_size=~\"$pod_size\", label_dag_id!=\"\", label_task_id!=\"\"}\n)",
+          "legendFormat": "{{label_dag_id}} / {{label_task_id}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": [
+    "airflow",
+    "kubernetes",
+    "workers"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(kube_pod_labels, namespace)",
+        "hide": 0,
+        "includeAll": false,
+        "allValue": null,
+        "multi": false,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "query": "label_values(kube_pod_labels, namespace)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "label": "Namespace",
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(kube_pod_labels{namespace=\"$namespace\", label_dag_id!=\"\", label_task_id!=\"\"}, label_dag_id)",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "name": "dag_id",
+        "options": [],
+        "query": {
+          "query": "label_values(kube_pod_labels{namespace=\"$namespace\", label_dag_id!=\"\", label_task_id!=\"\"}, label_dag_id)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "label": "DAG ID",
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id!=\"\"}, label_task_id)",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "name": "task_id",
+        "options": [],
+        "query": {
+          "query": "label_values(kube_pod_labels{namespace=\"$namespace\", label_dag_id=~\"$dag_id\", label_task_id!=\"\"}, label_task_id)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "label": "Task ID",
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(kube_pod_labels{namespace=\"$namespace\", label_dag_id!=\"\", label_task_id!=\"\"}, label_pod_size)",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "name": "pod_size",
+        "options": [],
+        "query": {
+          "query": "label_values(kube_pod_labels{namespace=\"$namespace\", label_dag_id!=\"\", label_task_id!=\"\"}, label_pod_size)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "label": "Pod Size",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Airflow Worker Pods \u2014 Resource Utilisation",
+  "uid": "airflow-worker-resources",
+  "version": 1
+}
