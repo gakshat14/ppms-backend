@@ -1,0 +1,291 @@
+# ==============================================================================
+# VictoriaMetrics Cluster - values.yaml
+# ------------------------------------------------------------------------------
+# Based on:
+#   - Cluster mode for multi-environment support (orch_uat, orch_prod etc.)
+#   - RF=2 across 3 vmstorage nodes for HA
+#   - 30d retention
+#   - Label based tenant separation (no vmgateway)
+#   - vmauth for securing remote write and read endpoints
+#   - vmbackup for DR protection
+#   - Prometheus (via operator) remote writes into vminsert
+#   - Grafana reads from vmselect
+#   - No cache infrastructure assumed
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Global
+# ------------------------------------------------------------------------------
+nameOverride: vmc   # keep short to avoid 63 char k8s name limits
+
+# ------------------------------------------------------------------------------
+# vminsert - stateless, handles incoming remote_write from Prometheus
+# ------------------------------------------------------------------------------
+vminsert:
+  enabled: true
+
+  # Deployment (stateless - no persistent storage needed)
+  replicaCount: 2
+
+  # Replication factor must match vmstorage RF below
+  extraArgs:
+    replicationFactor: "2"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  # Pod disruption budget - always keep at least 1 vminsert up
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Horizontal pod autoscaling - scale vminsert independently as ingest grows
+  horizontalPodAutoscaler:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+
+  service:
+    type: ClusterIP
+    servicePort: 8480
+
+# ------------------------------------------------------------------------------
+# vmstorage - stateful, stores all metric data on disk
+# ------------------------------------------------------------------------------
+vmstorage:
+  enabled: true
+
+  # StatefulSet - must be odd or 3+ for RF=2
+  # 3 nodes: RF=2 means data written to 2 of 3 nodes
+  # tolerates 1 node failure without data loss
+  replicaCount: 3
+
+  # 30 day retention
+  retentionPeriod: "30d"
+
+  # Replication factor - each series written to 2 vmstorage nodes
+  replicationFactor: 2
+
+  extraArgs:
+    # Deduplicate data on read (matches Prometheus scrape interval)
+    dedup.minScrapeInterval: "15s"
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+  # Persistent storage per vmstorage pod
+  # Adjust size based on your active series count
+  # VM compresses ~3-4x better than Prometheus TSDB
+  # e.g. 1M series x 30d ~ 50-100GB per node with RF=2
+  persistentVolume:
+    enabled: true
+    size: 100Gi
+    # Use your cloud provider's storage class
+    # storageClass: "gp3"  # AWS
+    # storageClass: "premium-rwo"  # GCP
+    # storageClass: "managed-premium"  # Azure
+
+  # Pod disruption budget - always keep at least 2 vmstorage nodes up
+  # (required to maintain RF=2 guarantee)
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+  service:
+    type: ClusterIP
+    servicePort: 8482
+
+  # vmbackup sidecar - incremental backups to object storage
+  # Protects against data loss that RF=2 cannot (deletion, corruption, disaster)
+  vmbackup:
+    enabled: true
+    # Point to your object storage bucket
+    destination: "s3://your-bucket-name/vm-backups"
+    # Hourly incremental backups (efficient - only changed blocks uploaded)
+    schedule: "0 * * * *"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    extraArgs:
+      # Snapshot URL for consistent backups
+      snapshot.createURL: "http://localhost:8482/snapshot/create"
+      snapshot.deleteURL: "http://localhost:8482/snapshot/delete"
+
+# ------------------------------------------------------------------------------
+# vmselect - stateless, handles queries from Grafana
+# ------------------------------------------------------------------------------
+vmselect:
+  enabled: true
+
+  # Deployment (stateless)
+  replicaCount: 2
+
+  extraArgs:
+    # Deduplicate series from HA Prometheus pairs
+    # Must match your Prometheus scrape interval
+    dedup.minScrapeInterval: "15s"
+
+    # Enforce query time limits to prevent runaway queries
+    search.maxQueryDuration: "2m"
+
+    # Limit concurrent queries per node
+    search.maxConcurrentRequests: "16"
+
+    # Cache for repeated queries (in-memory, no Redis needed)
+    # Acts as a lightweight query result cache
+    cacheDataPath: "/cache"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+  # Small persistent volume for vmselect cache
+  persistentVolume:
+    enabled: true
+    size: 10Gi
+
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Autoscale vmselect independently as query load grows
+  horizontalPodAutoscaler:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+
+  service:
+    type: ClusterIP
+    servicePort: 8481
+
+# ------------------------------------------------------------------------------
+# vmauth - single secured entry point for both reads and writes
+# Replaces direct exposure of vminsert and vmselect
+#
+# Step 1: Create secret before deploying:
+#   kubectl create secret generic vmauth-credentials \
+#     --from-literal=orch_uat_password=<your-password> \
+#     --from-literal=orch_prod_password=<your-password> \
+#     --from-literal=orch_staging_password=<your-password> \
+#     --from-literal=grafana_password=<your-password> \
+#     -n monitoring
+# ------------------------------------------------------------------------------
+vmauth:
+  enabled: true
+
+  config:
+    unauthorized_user:
+      # Reject all unauthenticated requests
+      url_map: []
+
+    users:
+      # --------------------------------------------------------
+      # Write access per environment via multitenant endpoint
+      # Prometheus external_labels.tenant drives tenant routing
+      # --------------------------------------------------------
+
+      # orch_uat - write access
+      - username: "orch_uat"
+        password:
+          secretKeyRef:
+            name: vmauth-credentials
+            key: orch_uat_password
+        url_map:
+          - src_paths:
+              - "/insert/multitenant/.*"
+            url_prefix: "http://vmc-victoria-metrics-cluster-vminsert:8480"
+
+      # orch_prod - write access
+      - username: "orch_prod"
+        password:
+          secretKeyRef:
+            name: vmauth-credentials
+            key: orch_prod_password
+        url_map:
+          - src_paths:
+              - "/insert/multitenant/.*"
+            url_prefix: "http://vmc-victoria-metrics-cluster-vminsert:8480"
+
+      # orch_staging - write access
+      - username: "orch_staging"
+        password:
+          secretKeyRef:
+            name: vmauth-credentials
+            key: orch_staging_password
+        url_map:
+          - src_paths:
+              - "/insert/multitenant/.*"
+            url_prefix: "http://vmc-victoria-metrics-cluster-vminsert:8480"
+
+      # --------------------------------------------------------
+      # Read access for Grafana via multitenant endpoint
+      # Grafana filters by tenant label per datasource
+      # --------------------------------------------------------
+      - username: "grafana"
+        password:
+          secretKeyRef:
+            name: vmauth-credentials
+            key: grafana_password
+        url_map:
+          - src_paths:
+              - "/select/multitenant/.*"
+              - "/api/v1/.*"
+            url_prefix: "http://vmc-victoria-metrics-cluster-vmselect:8481"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  service:
+    type: ClusterIP
+    servicePort: 8427
+
+  # Only vmauth is exposed via ingress
+  ingress:
+    enabled: true
+    # ingressClassName: nginx
+    hosts:
+      - name: vmauth.your-domain.com
+        path: /
+        port: 8427
+    tls:
+      - secretName: vmauth-tls
+        hosts:
+          - vmauth.your-domain.com
