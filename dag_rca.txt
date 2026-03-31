@@ -1,0 +1,29 @@
+**Root Cause: DAGs Disappearing Due to Stale Timeout**
+
+DAGs were intermittently disappearing without errors because the full DAG processing cycle (~1522s) was exceeding the stale timeout (1200s), causing the last ~30% of files in the queue to be marked stale and deactivated before they were ever parsed.
+
+**How the DAG processor works:**
+- DagFileProcessorManager scans for files every 90s (dag_dir_list_interval)
+- It maintains a continuous rolling queue of 203 DAG files
+- Only 2 processors (parsing_processes) were running in parallel
+- Each file is parsed independently with a 300s kill timeout per file
+- The 90s loop and the processors run independently — the loop never interrupts or restarts a processor
+
+**The Math:**
+- 203 files × 15s avg parse time ÷ 2 processors = ~1522s cycle time
+- Stale timeout was 1200s → files at the end of the queue expired before being reached
+
+**Contributing Factor — Excessive DB Queries at Parse Time:**
+Several DAG files were making hundreds of DB queries during parsing (not execution), significantly inflating parse times:
+- quant_research_v4.py: 41s, 1180 DB queries
+- dag_generator.py: 32s, 1074 DB queries
+- position_service_v4.py: 23s, 950 DB queries
+
+**Immediate Fixes Applied:**
+1. Increased parsing_processes from 2 → 4, reducing cycle time to ~761s
+2. Increased dag_stale_not_seen_duration from 1200s → 2400s as a safety buffer
+
+**Recommended Permanent Fixes:**
+1. Remove top-level DB queries from quant_research_v4.py, dag_generator.py, and position_service_v4.py — move DB calls inside task functions, not at file import time. This alone could reduce avg parse time from 15s to 2-3s.
+2. Add non-DAG files (utilities, helpers, config) to .airflowignore — files showing 0 DAGs in the processor log are consuming processor slots unnecessarily. Ignoring them could reduce the queue from 203 files to ~100.
+3. With both fixes above, 2 processors should be sufficient again and stale timeout can be safely reduced back to 1200s.
