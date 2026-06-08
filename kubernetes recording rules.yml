@@ -1,0 +1,73 @@
+groups:
+  - name: kubernetes_namespace_rules
+    interval: 1m
+    rules:
+
+      # ── Pod CPU ──────────────────────────────────────────────────────
+
+      # CPU usage rate per pod, aggregated by namespace
+      - record: namespace_pod:container_cpu_usage_seconds_total:rate5m
+        expr: |
+          sum(
+            rate(container_cpu_usage_seconds_total{container!="", pod!=""}[5m])
+          ) by (namespace, pod)
+
+      # Total CPU usage summed at namespace level
+      - record: namespace:container_cpu_usage_seconds_total:rate5m
+        expr: |
+          sum(
+            rate(container_cpu_usage_seconds_total{container!="", pod!=""}[5m])
+          ) by (namespace)
+
+      # CPU utilisation vs requested (namespace level)
+      - record: namespace:cpu_request_utilisation:ratio
+        expr: |
+          sum(rate(container_cpu_usage_seconds_total{container!="", pod!=""}[5m])) by (namespace)
+          /
+          sum(kube_pod_container_resource_requests{resource="cpu", pod!=""}) by (namespace)
+
+      # ── Pod Memory ───────────────────────────────────────────────────
+
+      # Memory usage (working set) per pod, aggregated by namespace
+      - record: namespace_pod:container_memory_working_set_bytes:sum
+        expr: |
+          sum(
+            container_memory_working_set_bytes{container!="", pod!=""}
+          ) by (namespace, pod)
+
+      # Total memory usage summed at namespace level
+      - record: namespace:container_memory_working_set_bytes:sum
+        expr: |
+          sum(
+            container_memory_working_set_bytes{container!="", pod!=""}
+          ) by (namespace)
+
+      # Memory utilisation vs requested (namespace level)
+      - record: namespace:memory_request_utilisation:ratio
+        expr: |
+          sum(container_memory_working_set_bytes{container!="", pod!=""}) by (namespace)
+          /
+          sum(kube_pod_container_resource_requests{resource="memory", pod!=""}) by (namespace)
+
+      # ── Node Resource Usage ──────────────────────────────────────────
+
+      # Node CPU utilisation (across all nodes)
+      - record: node:cpu_utilisation:rate5m
+        expr: |
+          1 - avg(
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          ) by (node)
+
+      # Node memory utilisation
+      - record: node:memory_utilisation:ratio
+        expr: |
+          1 - (
+            node_memory_MemAvailable_bytes
+            /
+            node_memory_MemTotal_bytes
+          )
+
+      # Node memory used bytes
+      - record: node:memory_used_bytes:sum
+        expr: |
+          node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes
