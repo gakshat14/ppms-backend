@@ -1,0 +1,302 @@
+groups:
+
+  # ============================================================
+  # MEMORY - max_over_time [5m]
+  # interval: 1m (< range, >= 4x scrape interval of 30s)
+  # ============================================================
+  - name: memory_max_5m
+    interval: 1m
+    rules:
+      - record: job:container_memory_max:5m
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(container_memory_working_set_bytes{container="base"}[5m])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[5m]
+              )
+            )
+          )
+
+  # ============================================================
+  # MEMORY - max_over_time [1h]
+  # interval: 5m (< range)
+  # ============================================================
+  - name: memory_max_1h
+    interval: 5m
+    rules:
+      - record: job:container_memory_max:1h
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(container_memory_working_set_bytes{container="base"}[1h])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1h]
+              )
+            )
+          )
+
+  # ============================================================
+  # MEMORY - max_over_time [1d]
+  # interval: 1h (< range)
+  # ============================================================
+  - name: memory_max_1d
+    interval: 1h
+    rules:
+      - record: job:container_memory_max:1d
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(container_memory_working_set_bytes{container="base"}[1d])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1d]
+              )
+            )
+          )
+
+  # ============================================================
+  # CPU - Step 1: pre-compute rate [5m], then avg [5m]
+  # Rules run sequentially — Step 2 uses Step 1 output
+  # interval: 1m
+  # ============================================================
+  - name: cpu_avg_5m
+    interval: 1m
+    rules:
+      # Step 1 — pre-compute rate
+      - record: job:container_cpu_rate:5m
+        expr: |
+          rate(container_cpu_usage_seconds_total{container="base"}[5m])
+
+      # Step 2a — avg over pre-computed rate + join pod labels
+      - record: job:container_cpu_avg:5m
+        expr: |
+          avg by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            avg_over_time(job:container_cpu_rate:5m[5m])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[5m]
+              )
+            )
+          )
+
+      # Step 2b — max over pre-computed rate + join pod labels (numerator for utilization %)
+      - record: job:container_cpu_max:5m
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(job:container_cpu_rate:5m[5m])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[5m]
+              )
+            )
+          )
+
+      # Step 3 — CPU requests (denominator for utilization %)
+      - record: job:container_cpu_requests:5m
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(
+              kube_pod_container_resource_requests{container="base", resource="cpu"}[5m]
+            )
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[5m]
+              )
+            )
+          )
+
+      # Step 4 — CPU utilization % (reuses Step 2b and Step 3)
+      - record: job:container_cpu_utilization_pct:5m
+        expr: |
+          job:container_cpu_max:5m
+          / on(pod, label_dag_id, label_task_id, label_pod_size, namespace)
+          job:container_cpu_requests:5m
+          * 100
+
+  # ============================================================
+  # CPU - Step 1: pre-compute rate [1h], then avg [1h]
+  # interval: 5m
+  # ============================================================
+  - name: cpu_avg_1h
+    interval: 5m
+    rules:
+      # Step 1 — pre-compute rate
+      - record: job:container_cpu_rate:1h
+        expr: |
+          rate(container_cpu_usage_seconds_total{container="base"}[1h])
+
+      # Step 2a — avg over pre-computed rate + join pod labels
+      - record: job:container_cpu_avg:1h
+        expr: |
+          avg by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            avg_over_time(job:container_cpu_rate:1h[1h])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1h]
+              )
+            )
+          )
+
+      # Step 2b — max over pre-computed rate + join pod labels (numerator for utilization %)
+      - record: job:container_cpu_max:1h
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(job:container_cpu_rate:1h[1h])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1h]
+              )
+            )
+          )
+
+      # Step 3 — CPU requests (denominator for utilization %)
+      - record: job:container_cpu_requests:1h
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(
+              kube_pod_container_resource_requests{container="base", resource="cpu"}[1h]
+            )
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1h]
+              )
+            )
+          )
+
+      # Step 4 — CPU utilization % (reuses Step 2b and Step 3)
+      - record: job:container_cpu_utilization_pct:1h
+        expr: |
+          job:container_cpu_max:1h
+          / on(pod, label_dag_id, label_task_id, label_pod_size, namespace)
+          job:container_cpu_requests:1h
+          * 100
+
+  # ============================================================
+  # CPU - Step 1: pre-compute rate [1d], then avg [1d]
+  # interval: 1h
+  # ============================================================
+  - name: cpu_avg_1d
+    interval: 1h
+    rules:
+      # Step 1 — pre-compute rate
+      - record: job:container_cpu_rate:1d
+        expr: |
+          rate(container_cpu_usage_seconds_total{container="base"}[1d])
+
+      # Step 2a — avg over pre-computed rate + join pod labels
+      - record: job:container_cpu_avg:1d
+        expr: |
+          avg by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            avg_over_time(job:container_cpu_rate:1d[1d])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1d]
+              )
+            )
+          )
+
+      # Step 2b — max over pre-computed rate + join pod labels (numerator for utilization %)
+      - record: job:container_cpu_max:1d
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(job:container_cpu_rate:1d[1d])
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1d]
+              )
+            )
+          )
+
+      # Step 3 — CPU requests (denominator for utilization %)
+      - record: job:container_cpu_requests:1d
+        expr: |
+          max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
+            max_over_time(
+              kube_pod_container_resource_requests{container="base", resource="cpu"}[1d]
+            )
+            * on(pod)
+            group_left(label_dag_id, label_task_id, label_pod_size)
+            max by (pod, label_dag_id, label_task_id, label_pod_size)(
+              max_over_time(
+                kube_pod_labels{
+                  pod!="buy-sell-paris-ingest-buy-sell-paris-ic0njn9f",
+                  label_dag_id!="",
+                  label_task_id!=""
+                }[1d]
+              )
+            )
+          )
+
+      # Step 4 — CPU utilization % (reuses Step 2b and Step 3)
+      - record: job:container_cpu_utilization_pct:1d
+        expr: |
+          job:container_cpu_max:1d
+          / on(pod, label_dag_id, label_task_id, label_pod_size, namespace)
+          job:container_cpu_requests:1d
+          * 100
