@@ -2,7 +2,7 @@ groups:
 
   # ============================================================
   # GROUP 1 — interval: 1m (all 5m range rules)
-  # Rules run sequentially — each step uses previous step output
+  # No chaining — all rules are self-contained
   # ============================================================
   - name: metrics_5m
     interval: 1m
@@ -26,16 +26,13 @@ groups:
             )
           )
 
-      # --- CPU Step 1 — pre-compute rate ---
-      - record: job:container_cpu_rate:5m
-        expr: |
-          rate(container_cpu_usage_seconds_total{container="base"}[5m])
-
-      # --- CPU Step 2a — avg utilization ---
+      # --- CPU avg utilization ---
       - record: job:container_cpu_avg:5m
         expr: |
           avg by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
-            avg_over_time(job:container_cpu_rate:5m[5m])
+            avg_over_time(
+              rate(container_cpu_usage_seconds_total{container="base"}[5m])[5m:1m]
+            )
             * on(pod)
             group_left(label_dag_id, label_task_id, label_pod_size)
             max by (pod, label_dag_id, label_task_id, label_pod_size)(
@@ -49,11 +46,13 @@ groups:
             )
           )
 
-      # --- CPU Step 2b — max utilization (numerator for %) ---
+      # --- CPU max utilization (numerator for %) ---
       - record: job:container_cpu_max:5m
         expr: |
           max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
-            max_over_time(job:container_cpu_rate:5m[5m])
+            max_over_time(
+              rate(container_cpu_usage_seconds_total{container="base"}[5m])[5m:1m]
+            )
             * on(pod)
             group_left(label_dag_id, label_task_id, label_pod_size)
             max by (pod, label_dag_id, label_task_id, label_pod_size)(
@@ -67,7 +66,7 @@ groups:
             )
           )
 
-      # --- CPU Step 3 — requests (denominator for %) ---
+      # --- CPU requests (denominator for %) ---
       - record: job:container_cpu_requests:5m
         expr: |
           max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
@@ -87,7 +86,7 @@ groups:
             )
           )
 
-      # --- CPU Step 4 — utilization % ---
+      # --- CPU utilization % ---
       - record: job:container_cpu_utilization_pct:5m
         expr: |
           job:container_cpu_max:5m
@@ -120,16 +119,13 @@ groups:
             )
           )
 
-      # --- CPU Step 1 — pre-compute rate ---
-      - record: job:container_cpu_rate:1h
-        expr: |
-          rate(container_cpu_usage_seconds_total{container="base"}[1h])
-
-      # --- CPU Step 2a — avg utilization ---
+      # --- CPU avg utilization ---
       - record: job:container_cpu_avg:1h
         expr: |
           avg by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
-            avg_over_time(job:container_cpu_rate:1h[1h])
+            avg_over_time(
+              rate(container_cpu_usage_seconds_total{container="base"}[5m])[1h:5m]
+            )
             * on(pod)
             group_left(label_dag_id, label_task_id, label_pod_size)
             max by (pod, label_dag_id, label_task_id, label_pod_size)(
@@ -143,11 +139,13 @@ groups:
             )
           )
 
-      # --- CPU Step 2b — max utilization (numerator for %) ---
+      # --- CPU max utilization (numerator for %) ---
       - record: job:container_cpu_max:1h
         expr: |
           max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
-            max_over_time(job:container_cpu_rate:1h[1h])
+            max_over_time(
+              rate(container_cpu_usage_seconds_total{container="base"}[5m])[1h:5m]
+            )
             * on(pod)
             group_left(label_dag_id, label_task_id, label_pod_size)
             max by (pod, label_dag_id, label_task_id, label_pod_size)(
@@ -161,7 +159,7 @@ groups:
             )
           )
 
-      # --- CPU Step 3 — requests (denominator for %) ---
+      # --- CPU requests (denominator for %) ---
       - record: job:container_cpu_requests:1h
         expr: |
           max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
@@ -181,7 +179,7 @@ groups:
             )
           )
 
-      # --- CPU Step 4 — utilization % ---
+      # --- CPU utilization % ---
       - record: job:container_cpu_utilization_pct:1h
         expr: |
           job:container_cpu_max:1h
@@ -214,16 +212,13 @@ groups:
             )
           )
 
-      # --- CPU Step 1 — pre-compute rate ---
-      - record: job:container_cpu_rate:1d
-        expr: |
-          rate(container_cpu_usage_seconds_total{container="base"}[1d])
-
-      # --- CPU Step 2a — avg utilization ---
+      # --- CPU avg utilization ---
       - record: job:container_cpu_avg:1d
         expr: |
           avg by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
-            avg_over_time(job:container_cpu_rate:1d[1d])
+            avg_over_time(
+              rate(container_cpu_usage_seconds_total{container="base"}[5m])[1d:1h]
+            )
             * on(pod)
             group_left(label_dag_id, label_task_id, label_pod_size)
             max by (pod, label_dag_id, label_task_id, label_pod_size)(
@@ -237,11 +232,13 @@ groups:
             )
           )
 
-      # --- CPU Step 2b — max utilization (numerator for %) ---
+      # --- CPU max utilization (numerator for %) ---
       - record: job:container_cpu_max:1d
         expr: |
           max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
-            max_over_time(job:container_cpu_rate:1d[1d])
+            max_over_time(
+              rate(container_cpu_usage_seconds_total{container="base"}[5m])[1d:1h]
+            )
             * on(pod)
             group_left(label_dag_id, label_task_id, label_pod_size)
             max by (pod, label_dag_id, label_task_id, label_pod_size)(
@@ -255,7 +252,7 @@ groups:
             )
           )
 
-      # --- CPU Step 3 — requests (denominator for %) ---
+      # --- CPU requests (denominator for %) ---
       - record: job:container_cpu_requests:1d
         expr: |
           max by (pod, label_dag_id, label_task_id, label_pod_size, namespace) (
@@ -275,7 +272,7 @@ groups:
             )
           )
 
-      # --- CPU Step 4 — utilization % ---
+      # --- CPU utilization % ---
       - record: job:container_cpu_utilization_pct:1d
         expr: |
           job:container_cpu_max:1d
