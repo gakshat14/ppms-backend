@@ -1,0 +1,5 @@
+{
+    "subject": "{{ .Status }}: {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})",
+    "body": "Severity: {{ .CommonLabels.severity }}\nEnvironment: {{ .Vars.environment }}\nService/Instance: {{ .CommonLabels.instance }}\nSummary: {{ .CommonAnnotations.summary }}\nDescription: {{ .CommonAnnotations.description }}\n{{ if eq .Status \"firing\" }}Started: {{ (index .Alerts 0).StartsAt }}\nRunbook: {{ .CommonAnnotations.runbook_url }}\nDashboard: {{ .ExternalURL }}\nSilence: {{ (index .Alerts 0).SilenceURL }}{{ else }}Started: {{ (index .Alerts 0).StartsAt }}\nResolved: {{ (index .Alerts 0).EndsAt }}{{ end }}",
+    "recipient": ["{{ .Vars.recipient }}"]
+}
