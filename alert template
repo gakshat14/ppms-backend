@@ -1,0 +1,24 @@
+{{ define "airflow_task_failure_body" }}
+{{ if gt (len .Alerts.Firing) 0 }}
+🔴 *{{ len .Alerts.Firing }} task instance(s) failed or up for retry*
+
+{{ range .Alerts.Firing }}
+---
+*DAG:* `{{ .Labels.dag_id }}`
+*Task:* `{{ .Labels.task_id }}`
+*Run ID:* `{{ .Labels.run_id }}`
+*State:* `{{ .Labels.state }}`
+{{ if .Labels.map_index }}*Map Index:* `{{ .Labels.map_index }}`{{ end }}
+*Try:* {{ .Labels.try_number }} / {{ .Labels.max_tries }}
+*Ended:* {{ .Labels.end_date }}
+{{ end }}
+{{ end }}
+
+{{ if gt (len .Alerts.Resolved) 0 }}
+✅ *{{ len .Alerts.Resolved }} task instance(s) recovered*
+
+{{ range .Alerts.Resolved }}
+- `{{ .Labels.dag_id }}` / `{{ .Labels.task_id }}` (run: `{{ .Labels.run_id }}`)
+{{ end }}
+{{ end }}
+{{ end }}
